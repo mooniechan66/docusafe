@@ -50,7 +50,8 @@ router.post('/register', async (req, res) => {
       }
     });
 
-    const verificationLink = `http://localhost:3000/auth/verify?token=${token}`;
+    // TODO: Make this configurable based on environment
+    const verificationLink = `http://localhost:4200/verify?token=${token}`;
     
     // In production, send real email. Here we log it or use a mock.
     console.log(`[AUTH] Verification link for ${email}: ${verificationLink}`);
