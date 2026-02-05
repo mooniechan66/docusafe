@@ -1,0 +1,36 @@
+<div class="min-h-screen bg-gray-100">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <h1 class="text-2xl font-bold text-gray-900">Secure View</h1>
+    <p class="mt-1 text-sm text-gray-600">Link ID: <span class="font-mono">{{ linkId }}</span></p>
+
+    <div *ngIf="loading" class="mt-8 text-center text-gray-600">Loading…</div>
+
+    <div *ngIf="error" class="mt-8 rounded-md bg-red-50 p-4 text-sm text-red-700">
+      {{ error }}
+    </div>
+
+    <div *ngIf="!loading && !error" class="mt-8">
+      <img
+        *ngIf="imageUrl && (contentType || '').startsWith('image/')"
+        [src]="imageUrl"
+        class="max-w-full rounded-md shadow bg-white"
+        alt="Document"
+      />
+
+      <iframe
+        *ngIf="pdfUrl && (contentType || '').includes('application/pdf')"
+        class="w-full rounded-md shadow bg-white"
+        style="min-height: 80vh"
+        [src]="pdfUrl"
+        title="Document"
+      ></iframe>
+
+      <div *ngIf="imageUrl && !(contentType || '').startsWith('image/') && !(contentType || '').includes('application/pdf')" class="rounded-md bg-yellow-50 p-4">
+        <p class="text-sm text-yellow-800">Unknown content type. Attempting to display as image/blob.</p>
+        <a class="text-indigo-600 hover:text-indigo-700 underline" [href]="imageUrl" target="_blank" rel="noopener">Open raw</a>
+      </div>
+    </div>
+
+    <p class="mt-8 text-xs text-gray-500">Viewing is watermarked and may be time-tracked.</p>
+  </div>
+</div>

@@ -7,4 +7,11 @@ coverage
 # Local sqlite db
 *.db
 
+# Uploads + local test artifacts
+uploads/
+tmp_test.pdf
+
+# Angular build cache
+frontend/.angular/
+
 /generated/prisma

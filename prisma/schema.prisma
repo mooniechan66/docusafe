@@ -2,7 +2,8 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "binary"
 }
 
 datasource db {
@@ -44,10 +45,14 @@ model ViewLog {
   id              String   @id @default(uuid())
   documentId      String
   document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sessionId       String?
   ipAddress       String?
   userAgent       String?
   durationSeconds Int      @default(0)
   viewedAt        DateTime @default(now())
+
+  @@unique([documentId, sessionId])
+  @@index([documentId, viewedAt])
 }
 
 model VerificationToken {

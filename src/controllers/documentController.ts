@@ -84,8 +84,15 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
   }
 };
 
+const first = (val: string | string[] | undefined) => (Array.isArray(val) ? val[0] : val);
+
 export const viewDocument = async (req: Request, res: Response) => {
-  const { linkId } = req.params;
+  const linkId = first((req.params as any).linkId);
+  const sessionIdFromQuery = typeof req.query.sid === 'string' ? req.query.sid : null;
+
+  if (!linkId) {
+    return res.status(400).json({ error: 'Missing linkId' });
+  }
 
   try {
     const document = await prisma.document.findUnique({
@@ -125,9 +132,11 @@ export const viewDocument = async (req: Request, res: Response) => {
     });
 
     // Log View
+    const sessionId = sessionIdFromQuery || uuidv4();
     await prisma.viewLog.create({
       data: {
         documentId: document.id,
+        sessionId,
         ipAddress: ip,
         userAgent: userAgent,
       },
@@ -155,5 +164,109 @@ export const viewDocument = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error viewing document:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// List Documents for User
+export const listDocuments = async (req: AuthRequest, res: Response) => {
+  try {
+    const documents = await prisma.document.findMany({
+      where: { userId: req.user!.userId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: { views: true }
+        }
+      }
+    });
+    res.json(documents);
+  } catch (error) {
+    console.error('List documents error:', error);
+    res.status(500).json({ error: 'Failed to list documents' });
+  }
+};
+
+// Delete (Burn) Document
+export const deleteDocument = async (req: AuthRequest, res: Response) => {
+  const id = first((req.params as any).id);
+  if (!id) {
+    return res.status(400).json({ error: 'Missing document id' });
+  }
+
+  try {
+    const document = await prisma.document.findFirst({
+      where: { id, userId: req.user!.userId }
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    await prisma.document.update({
+      where: { id },
+      data: { isBurned: true }
+    });
+
+    res.json({ message: 'Document burned successfully' });
+
+  } catch (error) {
+    console.error('Delete document error:', error);
+    res.status(500).json({ error: 'Failed to delete document' });
+  }
+};
+
+export const heartbeatView = async (req: Request, res: Response) => {
+  const linkId = first((req.params as any).linkId);
+  if (!linkId) {
+    return res.status(400).json({ error: 'Missing linkId' });
+  }
+
+  const { sessionId, deltaSeconds } = req.body || {};
+
+  const delta = Number(deltaSeconds);
+  if (!sessionId || typeof sessionId !== 'string') {
+    return res.status(400).json({ error: 'sessionId is required' });
+  }
+  if (!Number.isFinite(delta) || delta <= 0 || delta > 60) {
+    // Basic sanity bounds: we expect ~5s deltas
+    return res.status(400).json({ error: 'deltaSeconds must be a positive number (<= 60)' });
+  }
+
+  try {
+    const document = await prisma.document.findUnique({
+      where: { oneTimeLink: linkId },
+      select: { id: true }
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const ip = requestIp.getClientIp(req) || 'Unknown IP';
+    const userAgent = req.headers['user-agent'] || 'Unknown UA';
+
+    await prisma.viewLog.upsert({
+      where: {
+        documentId_sessionId: {
+          documentId: document.id,
+          sessionId
+        }
+      },
+      update: {
+        durationSeconds: { increment: Math.floor(delta) }
+      },
+      create: {
+        documentId: document.id,
+        sessionId,
+        ipAddress: ip,
+        userAgent,
+        durationSeconds: Math.floor(delta)
+      }
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Heartbeat error:', error);
+    res.status(500).json({ error: 'Failed to record heartbeat' });
   }
 };

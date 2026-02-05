@@ -1,0 +1,79 @@
+<div class="min-h-screen bg-gray-100">
+  <nav class="bg-white shadow">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between h-16">
+        <div class="flex">
+          <div class="flex-shrink-0 flex items-center">
+            <h1 class="text-xl font-bold text-indigo-600">Docusafe</h1>
+          </div>
+        </div>
+        <div class="flex items-center">
+          <button (click)="logout()" class="ml-4 px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+            Logout
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="py-10">
+    <header>
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+        <h1 class="text-3xl font-bold leading-tight text-gray-900">Dashboard</h1>
+        <a routerLink="/upload" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+          Upload Document
+        </a>
+      </div>
+    </header>
+    <main>
+      <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 mt-6">
+        <!-- Content -->
+        <div class="bg-white shadow overflow-hidden sm:rounded-md">
+          <ul class="divide-y divide-gray-200">
+            <li *ngIf="loading" class="px-4 py-4 sm:px-6 text-center text-gray-500">
+              Loading documents...
+            </li>
+            <li *ngIf="!loading && documents.length === 0" class="px-4 py-12 sm:px-6 text-center">
+              <p class="text-gray-500">No documents shared yet.</p>
+              <a routerLink="/upload" class="mt-2 inline-block text-indigo-600 hover:text-indigo-500">Share your first document</a>
+            </li>
+            <li *ngFor="let doc of documents">
+              <div class="px-4 py-4 sm:px-6 flex items-center justify-between hover:bg-gray-50">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between">
+                    <p class="text-sm font-medium text-indigo-600 truncate">{{ doc.title }}</p>
+                    <div class="ml-2 flex-shrink-0 flex">
+                      <span *ngIf="doc.isBurned" class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                        Burned
+                      </span>
+                      <span *ngIf="!doc.isBurned" class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                        Active
+                      </span>
+                    </div>
+                  </div>
+                  <div class="mt-2 flex justify-between">
+                    <div class="sm:flex">
+                      <p class="flex items-center text-sm text-gray-500">
+                        Link: <span class="font-mono ml-1 select-all">{{ doc.oneTimeLink }}</span>
+                      </p>
+                    </div>
+                    <div class="ml-2 flex-shrink-0 flex flex-col items-end text-sm text-gray-500">
+                      <p>Views: {{ doc.currentViews }} / {{ doc.maxViews || '∞' }}</p>
+                      <p *ngIf="doc.expiresAt">Expires: {{ doc.expiresAt | date:'short' }}</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="ml-5 flex-shrink-0">
+                   <a [routerLink]="['/view', doc.oneTimeLink]" target="_blank" class="mr-3 text-indigo-600 hover:text-indigo-900 text-sm">View</a>
+                   <button *ngIf="!doc.isBurned" (click)="burnDocument(doc.id)" class="text-red-600 hover:text-red-900 text-sm font-medium">
+                     Burn
+                   </button>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>

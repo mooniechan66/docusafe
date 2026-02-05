@@ -17,7 +17,7 @@ app.use('/auth', registrationRoutes);
 app.use('/auth', loginRoutes);
 app.use('/auth', googleRoutes);
 app.use('/api/documents', documentRoutes);
-app.use('/view', viewRoutes);
+app.use('/api/view', viewRoutes);
 
 app.get('/', (req, res) => {
   res.send('Docusafe API is running');

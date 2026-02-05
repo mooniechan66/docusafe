@@ -12,7 +12,10 @@ export const checkUploadLimit = async (req: AuthRequest, res: Response, next: Ne
   if (plan === 'FREE') {
     try {
       const documentCount = await prisma.document.count({
-        where: { userId: userId },
+        where: { 
+          userId: userId,
+          isBurned: false // Only count active documents
+        },
       });
 
       if (documentCount >= 1) {
