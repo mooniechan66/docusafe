@@ -1,18 +1,27 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
 
-import { Verify } from './verify';
+import { VerifyComponent } from './verify';
 
-describe('Verify', () => {
-  let component: Verify;
-  let fixture: ComponentFixture<Verify>;
+describe('VerifyComponent', () => {
+  let component: VerifyComponent;
+  let fixture: ComponentFixture<VerifyComponent>;
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({
-      imports: [Verify]
-    })
-    .compileComponents();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).localStorage = {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {}
+    };
 
-    fixture = TestBed.createComponent(Verify);
+    await TestBed.configureTestingModule({
+      imports: [VerifyComponent],
+      providers: [provideRouter([]), provideHttpClient()]
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(VerifyComponent);
     component = fixture.componentInstance;
     await fixture.whenStable();
   });

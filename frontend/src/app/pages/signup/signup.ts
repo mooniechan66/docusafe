@@ -1,45 +1,79 @@
-import { Component } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import {
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  Validators
+} from '@angular/forms';
 import { RouterModule } from '@angular/router';
+import { finalize, timeout } from 'rxjs';
+
 import { AuthService } from '../../services/auth.service';
+
+type SignupResponse = {
+  message?: string;
+  verificationLink?: string;
+  previewUrl?: string | null;
+};
 
 @Component({
   selector: 'app-signup',
-  standalone: true,
   imports: [CommonModule, ReactiveFormsModule, RouterModule],
-  templateUrl: './signup.html'
+  templateUrl: './signup.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class SignupComponent {
-  signupForm: FormGroup;
-  error: string = '';
-  loading = false;
-  success = false;
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly authService = inject(AuthService);
 
-  constructor(
-    private fb: FormBuilder,
-    private authService: AuthService
-  ) {
-    this.signupForm = this.fb.group({
-      email: ['', [Validators.required, Validators.email]],
-      password: ['', [Validators.required, Validators.minLength(8)]]
-    });
-  }
+  readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly success = signal(false);
 
-  onSubmit() {
-    if (this.signupForm.valid) {
-      this.loading = true;
-      this.error = '';
-      this.authService.signup(this.signupForm.value).subscribe({
-        next: () => {
-          this.loading = false;
-          this.success = true;
+  readonly verificationLink = signal<string | null>(null);
+  readonly previewUrl = signal<string | null>(null);
+
+  readonly form = this.fb.group({
+    email: this.fb.control('', [Validators.required, Validators.email]),
+    password: this.fb.control('', [Validators.required, Validators.minLength(8)])
+  });
+
+  readonly canSubmit = computed(() => this.form.valid && !this.loading());
+
+  submit() {
+    if (this.form.invalid || this.loading()) return;
+
+    this.loading.set(true);
+    this.error.set(null);
+
+    this.authService
+      .signup(this.form.getRawValue())
+      .pipe(
+        timeout({ first: 20000 }),
+        finalize(() => this.loading.set(false))
+      )
+      .subscribe({
+        next: (resp: SignupResponse) => {
+          this.success.set(true);
+          this.verificationLink.set(resp?.verificationLink || null);
+          this.previewUrl.set(resp?.previewUrl || null);
         },
-        error: (err) => {
-          this.loading = false;
-          this.error = err.error?.error || 'Signup failed';
+        error: (err: unknown) => {
+          const msg =
+            typeof err === 'object' && err !== null
+              ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ((err as any).error?.error as string | undefined) ||
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ((err as any).message as string | undefined)
+              : undefined;
+          this.error.set(msg || 'Signup failed.');
         }
       });
-    }
   }
 }

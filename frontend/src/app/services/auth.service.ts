@@ -11,10 +11,15 @@ export class AuthService {
   public currentUser$ = this.currentUserSubject.asObservable();
 
   constructor(private http: HttpClient) {
-    const token = localStorage.getItem(this.tokenKey);
-    if (token) {
-      // We could decode the token here to get user info
-      this.currentUserSubject.next({ token }); 
+    // Guard for non-browser test environments
+    try {
+      const token = globalThis?.localStorage?.getItem(this.tokenKey);
+      if (token) {
+        // We could decode the token here to get user info
+        this.currentUserSubject.next({ token });
+      }
+    } catch {
+      // ignore
     }
   }
 

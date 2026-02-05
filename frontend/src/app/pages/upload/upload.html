@@ -7,8 +7,9 @@
         </div>
         <div class="flex items-center">
           <button
+            type="button"
             (click)="backToDashboard()"
-            class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50"
+            class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
           >
             Back
           </button>
@@ -27,12 +28,15 @@
       <div class="mt-6 bg-white shadow sm:rounded-lg p-6">
         <div
           class="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer"
-          [class.border-indigo-400]="dragging"
-          [class.bg-indigo-50]="dragging"
+          [class.border-indigo-400]="dragging()"
+          [class.bg-indigo-50]="dragging()"
           (drop)="onDrop($event)"
           (dragover)="onDragOver($event)"
           (dragleave)="onDragLeave($event)"
           (click)="fileInput.click()"
+          role="button"
+          tabindex="0"
+          aria-label="Choose a file to upload"
         >
           <input
             #fileInput
@@ -42,129 +46,128 @@
             (change)="onFilePicked(fileInput.files)"
           />
 
-          <p class="text-gray-700" *ngIf="!selectedFile">Drag & drop a file here, or click to choose</p>
-          <div *ngIf="selectedFile" class="text-gray-700">
-            <p class="font-medium">Selected:</p>
-            <p class="font-mono text-sm break-all">{{ selectedFile.name }}</p>
-            <button
-              type="button"
-              (click)="$event.stopPropagation(); clearFile()"
-              class="mt-3 inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-gray-100 hover:bg-gray-200"
-            >
-              Remove
-            </button>
-          </div>
+          @if (!selectedFile()) {
+            <p class="text-gray-700">Drag & drop a file here, or click to choose</p>
+          } @else {
+            <div class="text-gray-700">
+              <p class="font-medium">Selected:</p>
+              <p class="font-mono text-sm break-all">{{ selectedFile()?.name }}</p>
+              <button
+                type="button"
+                (click)="$event.stopPropagation(); clearFile()"
+                class="mt-3 inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                Remove
+              </button>
+            </div>
+          }
         </div>
 
-        <div class="mt-6 grid gap-5">
+        <form class="mt-6 grid gap-5" [formGroup]="form" (ngSubmit)="submit()">
           <div>
-            <label class="block text-sm font-medium text-gray-700">Title</label>
+            <label for="title" class="block text-sm font-medium text-gray-700">Title</label>
             <input
-              [(ngModel)]="title"
+              id="title"
+              formControlName="title"
               type="text"
+              autocomplete="off"
               placeholder="e.g. NDA - Acme"
               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
           </div>
 
           <div class="flex items-center gap-3">
-            <input id="oneTime" [(ngModel)]="oneTime" type="checkbox" class="h-4 w-4" />
+            <input
+              id="oneTime"
+              formControlName="oneTime"
+              type="checkbox"
+              class="h-4 w-4"
+            />
             <label for="oneTime" class="text-sm text-gray-700">One-time view (maxViews = 1)</label>
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700">Expiry</label>
+            <p class="block text-sm font-medium text-gray-700">Expiry</p>
             <div class="mt-2 flex flex-col gap-3">
               <div class="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="expiryMode"
-                  [(ngModel)]="expiryMode"
-                  value="none"
-                  id="expNone"
-                />
+                <input id="expNone" type="radio" name="expiryMode" value="none" formControlName="expiryMode" />
                 <label for="expNone" class="text-sm text-gray-700">No expiry</label>
               </div>
 
               <div class="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="expiryMode"
-                  [(ngModel)]="expiryMode"
-                  value="hours"
-                  id="expHours"
-                />
+                <input id="expHours" type="radio" name="expiryMode" value="hours" formControlName="expiryMode" />
                 <label for="expHours" class="text-sm text-gray-700">Expire in</label>
                 <input
-                  [(ngModel)]="expiryHours"
+                  formControlName="expiryHours"
                   type="number"
                   min="1"
                   class="w-28 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  [disabled]="expiryMode !== 'hours'"
+                  [disabled]="form.controls.expiryMode.value !== 'hours'"
                 />
                 <span class="text-sm text-gray-700">hours</span>
               </div>
 
               <div class="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="expiryMode"
-                  [(ngModel)]="expiryMode"
-                  value="datetime"
-                  id="expDatetime"
-                />
+                <input id="expDatetime" type="radio" name="expiryMode" value="datetime" formControlName="expiryMode" />
                 <label for="expDatetime" class="text-sm text-gray-700">Expire at</label>
                 <input
-                  [(ngModel)]="expiryDateTimeLocal"
+                  formControlName="expiryDateTimeLocal"
                   type="datetime-local"
                   class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  [disabled]="expiryMode !== 'datetime'"
+                  [disabled]="form.controls.expiryMode.value !== 'datetime'"
                 />
               </div>
             </div>
           </div>
 
-          <div *ngIf="error" class="rounded-md bg-red-50 p-4 text-sm text-red-700">{{ error }}</div>
-
-          <div *ngIf="upgradeRequired" class="rounded-md bg-yellow-50 p-4">
-            <p class="text-sm text-yellow-800 font-medium">Upgrade to Pro</p>
-            <p class="mt-1 text-sm text-yellow-700">
-              You’ve reached the Free tier limit. (Placeholder: billing/upgrade flow goes here.)
-            </p>
-          </div>
-
-          <div *ngIf="uploadedLinkUrl" class="rounded-md bg-green-50 p-4">
-            <p class="text-sm text-green-800 font-medium">Uploaded!</p>
-            <p class="mt-1 text-sm text-green-700">Share link:</p>
-            <p class="mt-1 text-sm font-mono select-all break-all">{{ uploadedLinkUrl }}</p>
-            <div class="mt-3 flex gap-3">
-              <a
-                class="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
-                [href]="uploadedLinkUrl"
-                target="_blank"
-                rel="noopener"
-              >
-                Open
-              </a>
-              <button
-                type="button"
-                class="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium bg-gray-100 hover:bg-gray-200"
-                (click)="backToDashboard()"
-              >
-                Back to Dashboard
-              </button>
+          @if (error(); as err) {
+            <div class="rounded-md bg-red-50 p-4 text-sm text-red-700" role="alert" aria-live="polite">
+              {{ err }}
             </div>
-          </div>
+          }
+
+          @if (upgradeRequired()) {
+            <div class="rounded-md bg-yellow-50 p-4" role="status" aria-live="polite">
+              <p class="text-sm text-yellow-800 font-medium">Upgrade to Pro</p>
+              <p class="mt-1 text-sm text-yellow-700">
+                You’ve reached the Free tier limit. (Placeholder: billing/upgrade flow goes here.)
+              </p>
+            </div>
+          }
+
+          @if (uploadedLinkUrl(); as link) {
+            <div class="rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+              <p class="text-sm text-green-800 font-medium">Uploaded!</p>
+              <p class="mt-1 text-sm text-green-700">Share link:</p>
+              <p class="mt-1 text-sm font-mono select-all break-all">{{ link }}</p>
+              <div class="mt-3 flex gap-3">
+                <a
+                  class="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  [href]="link"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Open
+                </a>
+                <button
+                  type="button"
+                  class="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  (click)="backToDashboard()"
+                >
+                  Back to Dashboard
+                </button>
+              </div>
+            </div>
+          }
 
           <button
-            type="button"
-            (click)="submit()"
-            [disabled]="loading"
-            class="inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+            type="submit"
+            [disabled]="!canSubmit()"
+            class="inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
           >
-            {{ loading ? 'Uploading…' : 'Upload' }}
+            {{ loading() ? 'Uploading…' : 'Upload' }}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   </div>

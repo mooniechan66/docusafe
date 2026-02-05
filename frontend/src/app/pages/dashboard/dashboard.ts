@@ -1,48 +1,69 @@
-import { Component, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  signal
+} from '@angular/core';
+import { CommonModule, DatePipe } from '@angular/common';
 import { RouterModule } from '@angular/router';
-import { DocumentService, Document } from '../../services/document.service';
+import { finalize, timeout } from 'rxjs';
+
+import { Document, DocumentService } from '../../services/document.service';
 import { AuthService } from '../../services/auth.service';
 
 @Component({
   selector: 'app-dashboard',
-  standalone: true,
-  imports: [CommonModule, RouterModule],
-  templateUrl: './dashboard.html'
+  imports: [CommonModule, RouterModule, DatePipe],
+  templateUrl: './dashboard.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class DashboardComponent implements OnInit {
-  documents: Document[] = [];
-  loading = true;
+export class DashboardComponent {
+  private readonly documentService = inject(DocumentService);
+  private readonly authService = inject(AuthService);
 
-  constructor(
-    private documentService: DocumentService,
-    private authService: AuthService
-  ) {}
+  readonly documents = signal<ReadonlyArray<Document>>([]);
+  readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
 
-  ngOnInit() {
-    this.loadDocuments();
+  constructor() {
+    this.refresh();
   }
 
-  loadDocuments() {
-    this.loading = true;
-    this.documentService.getDocuments().subscribe({
-      next: (docs) => {
-        this.documents = docs;
-        this.loading = false;
-      },
-      error: (err) => {
-        console.error('Failed to load documents', err);
-        this.loading = false;
-      }
-    });
+  refresh() {
+    this.loading.set(true);
+    this.error.set(null);
+
+    this.documentService
+      .getDocuments()
+      .pipe(
+        timeout({ first: 15000 }),
+        finalize(() => this.loading.set(false))
+      )
+      .subscribe({
+        next: (docs) => this.documents.set(docs),
+        error: () => this.error.set('Failed to load documents.')
+      });
   }
 
   burnDocument(id: string) {
-    if (confirm('Are you sure you want to burn this document? It will become inaccessible.')) {
-      this.documentService.deleteDocument(id).subscribe(() => {
-        this.loadDocuments();
+    const ok = window.confirm(
+      'Are you sure you want to burn this document? It will become inaccessible.'
+    );
+    if (!ok) return;
+
+    this.loading.set(true);
+    this.error.set(null);
+
+    this.documentService
+      .deleteDocument(id)
+      .pipe(
+        timeout({ first: 15000 }),
+        finalize(() => this.loading.set(false))
+      )
+      .subscribe({
+        next: () => this.refresh(),
+        error: () => this.error.set('Failed to burn document.')
       });
-    }
   }
 
   logout() {

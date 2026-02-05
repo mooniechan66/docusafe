@@ -1,132 +1,159 @@
-import { Component } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import {
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  Validators
+} from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
+import { finalize, timeout } from 'rxjs';
+
 import { DocumentService } from '../../services/document.service';
+
+type ExpiryMode = 'none' | 'hours' | 'datetime';
 
 @Component({
   selector: 'app-upload',
-  standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule],
-  templateUrl: './upload.html'
+  imports: [CommonModule, ReactiveFormsModule, RouterModule],
+  templateUrl: './upload.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class UploadComponent {
-  selectedFile: File | null = null;
-  dragging = false;
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly documentService = inject(DocumentService);
+  private readonly router = inject(Router);
 
-  title = '';
-  oneTime = false;
+  readonly selectedFile = signal<File | null>(null);
+  readonly dragging = signal(false);
 
-  expiryMode: 'none' | 'hours' | 'datetime' = 'none';
-  expiryHours: number | null = 24;
-  expiryDateTimeLocal = '';
+  readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly upgradeRequired = signal(false);
+  readonly uploadedLinkUrl = signal<string | null>(null);
 
-  loading = false;
-  error: string | null = null;
-  upgradeRequired = false;
-  uploadedLinkUrl: string | null = null;
+  readonly form = this.fb.group({
+    title: this.fb.control('', [Validators.maxLength(200)]),
+    oneTime: this.fb.control(false),
+    expiryMode: this.fb.control<ExpiryMode>('none'),
+    expiryHours: this.fb.control<number>(24, [Validators.min(1), Validators.max(720)]),
+    expiryDateTimeLocal: this.fb.control('')
+  });
 
-  constructor(
-    private documentService: DocumentService,
-    private router: Router
-  ) {}
+  readonly canSubmit = computed(() => !!this.selectedFile() && !this.loading());
 
   onFilePicked(files: FileList | null) {
     if (!files || files.length === 0) return;
-    this.selectedFile = files[0];
-    this.error = null;
-    this.upgradeRequired = false;
+    this.selectedFile.set(files[0]);
+    this.error.set(null);
+    this.upgradeRequired.set(false);
+    this.uploadedLinkUrl.set(null);
   }
 
   onDrop(ev: DragEvent) {
     ev.preventDefault();
-    this.dragging = false;
+    this.dragging.set(false);
     const files = ev.dataTransfer?.files;
-    if (files && files.length > 0) {
-      this.onFilePicked(files);
-    }
+    if (files && files.length > 0) this.onFilePicked(files);
   }
 
   onDragOver(ev: DragEvent) {
     ev.preventDefault();
-    this.dragging = true;
+    this.dragging.set(true);
   }
 
   onDragLeave(ev: DragEvent) {
     ev.preventDefault();
-    this.dragging = false;
+    this.dragging.set(false);
   }
 
   clearFile() {
-    this.selectedFile = null;
+    this.selectedFile.set(null);
   }
 
   private computeExpiresAtIso(): string | null {
-    if (this.expiryMode === 'none') return null;
+    const mode = this.form.controls.expiryMode.value;
+    if (mode === 'none') return null;
 
-    if (this.expiryMode === 'hours') {
-      const hours = this.expiryHours ?? 0;
+    if (mode === 'hours') {
+      const hours = this.form.controls.expiryHours.value;
       if (!Number.isFinite(hours) || hours <= 0) return null;
-      const d = new Date(Date.now() + hours * 60 * 60 * 1000);
-      return d.toISOString();
+      return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
     }
 
-    // datetime-local is in local time without timezone; convert to Date.
-    if (!this.expiryDateTimeLocal) return null;
-    const d = new Date(this.expiryDateTimeLocal);
+    const local = this.form.controls.expiryDateTimeLocal.value;
+    if (!local) return null;
+    const d = new Date(local);
     if (Number.isNaN(d.getTime())) return null;
     return d.toISOString();
   }
 
   submit() {
-    this.error = null;
-    this.upgradeRequired = false;
-    this.uploadedLinkUrl = null;
+    this.error.set(null);
+    this.upgradeRequired.set(false);
+    this.uploadedLinkUrl.set(null);
 
-    if (!this.selectedFile) {
-      this.error = 'Please choose a file to upload.';
+    const file = this.selectedFile();
+    if (!file) {
+      this.error.set('Please choose a file to upload.');
       return;
     }
 
-    this.loading = true;
-    const form = new FormData();
-    form.append('file', this.selectedFile);
-    if (this.title.trim()) form.append('title', this.title.trim());
+    this.loading.set(true);
+
+    const body = new FormData();
+    body.append('file', file);
+
+    const title = this.form.controls.title.value.trim();
+    if (title) body.append('title', title);
 
     const expiresAt = this.computeExpiresAtIso();
-    if (expiresAt) form.append('expiresAt', expiresAt);
+    if (expiresAt) body.append('expiresAt', expiresAt);
 
-    if (this.oneTime) {
-      form.append('maxViews', '1');
+    if (this.form.controls.oneTime.value) {
+      body.append('maxViews', '1');
     }
 
-    this.documentService.uploadDocument(form).subscribe({
-      next: (resp) => {
-        this.loading = false;
-        this.uploadedLinkUrl = resp?.linkUrl ?? null;
-        // If no linkUrl returned, still go back to dashboard.
-        if (!this.uploadedLinkUrl) {
-          this.router.navigateByUrl('/dashboard');
-        }
-      },
-      error: (err: unknown) => {
-        this.loading = false;
-        if (err instanceof HttpErrorResponse) {
-          if (err.status === 403) {
-            this.upgradeRequired = true;
-            this.error = null;
+    this.documentService
+      .uploadDocument(body)
+      .pipe(
+        timeout({ first: 60000 }),
+        finalize(() => this.loading.set(false))
+      )
+      .subscribe({
+        next: (resp) => {
+          const linkUrl = typeof resp?.linkUrl === 'string' ? resp.linkUrl : null;
+          this.uploadedLinkUrl.set(linkUrl);
+          if (!linkUrl) {
+            void this.router.navigateByUrl('/dashboard');
+          }
+        },
+        error: (err: unknown) => {
+          if (err instanceof HttpErrorResponse) {
+            if (err.status === 403) {
+              this.upgradeRequired.set(true);
+              this.error.set(null);
+              return;
+            }
+            const msg =
+              (typeof err.error?.error === 'string' && err.error.error) ||
+              (typeof err.error?.message === 'string' && err.error.message) ||
+              `Upload failed (${err.status}).`;
+            this.error.set(msg);
             return;
           }
-          this.error = err.error?.error || err.error?.message || `Upload failed (${err.status}).`;
-        } else {
-          this.error = 'Upload failed.';
+          this.error.set('Upload failed.');
         }
-      }
-    });
+      });
   }
 
   backToDashboard() {
-    this.router.navigateByUrl('/dashboard');
+    void this.router.navigateByUrl('/dashboard');
   }
 }

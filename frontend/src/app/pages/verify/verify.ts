@@ -1,48 +1,59 @@
-import { Component, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  signal
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { timeout } from 'rxjs';
+
 import { AuthService } from '../../services/auth.service';
+
+type Status = 'verifying' | 'success' | 'error';
 
 @Component({
   selector: 'app-verify',
-  standalone: true,
   imports: [CommonModule, RouterModule],
-  templateUrl: './verify.html'
+  templateUrl: './verify.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class VerifyComponent implements OnInit {
-  status: 'verifying' | 'success' | 'error' = 'verifying';
-  message = '';
+export class VerifyComponent {
+  private readonly route = inject(ActivatedRoute);
+  private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
-  constructor(
-    private route: ActivatedRoute,
-    private authService: AuthService,
-    private router: Router
-  ) {}
+  readonly status = signal<Status>('verifying');
+  readonly message = signal('');
 
-  ngOnInit() {
-    this.route.queryParams.subscribe(params => {
-      const token = params['token'];
-      if (token) {
-        this.verify(token);
-      } else {
-        this.status = 'error';
-        this.message = 'No verification token provided.';
-      }
-    });
-  }
+  constructor() {
+    const token = this.route.snapshot.queryParamMap.get('token');
+    if (!token) {
+      this.status.set('error');
+      this.message.set('No verification token provided.');
+      return;
+    }
 
-  verify(token: string) {
-    this.authService.verify(token).subscribe({
-      next: (res) => {
-        this.status = 'success';
-        this.message = res.message || 'Email verified successfully!';
-        // Redirect to login after 3 seconds
-        setTimeout(() => this.router.navigate(['/login']), 3000);
-      },
-      error: (err) => {
-        this.status = 'error';
-        this.message = err.error?.error || 'Verification failed. Link may be expired.';
-      }
-    });
+    this.authService
+      .verify(token)
+      .pipe(timeout({ first: 15000 }))
+      .subscribe({
+        next: (res) => {
+          this.status.set('success');
+          this.message.set(res?.message || 'Email verified successfully!');
+          setTimeout(() => void this.router.navigate(['/login']), 2500);
+        },
+        error: (err: unknown) => {
+          const msg =
+            typeof err === 'object' && err !== null
+              ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ((err as any).error?.error as string | undefined) ||
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ((err as any).message as string | undefined)
+              : undefined;
+          this.status.set('error');
+          this.message.set(msg || 'Verification failed. Link may be expired.');
+        }
+      });
   }
 }

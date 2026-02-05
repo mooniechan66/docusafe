@@ -1,42 +1,48 @@
-import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 
+import { finalize, timeout } from 'rxjs';
+
+type ViewerState = 'loading' | 'ready' | 'error';
+
 @Component({
   selector: 'app-viewer',
-  standalone: true,
   imports: [CommonModule],
-  templateUrl: './viewer.html'
+  templateUrl: './viewer.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class ViewerComponent implements OnInit, OnDestroy {
+export class ViewerComponent {
+  private readonly route = inject(ActivatedRoute);
+  private readonly http = inject(HttpClient);
+  private readonly sanitizer = inject(DomSanitizer);
 
-  linkId = '';
-  sessionId = '';
+  readonly linkId = signal(this.route.snapshot.paramMap.get('linkId') ?? '');
+  readonly sessionId = signal(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
 
-  loading = true;
-  error: string | null = null;
+  readonly state = signal<ViewerState>('loading');
+  readonly error = signal<string | null>(null);
 
-  contentType: string | null = null;
-  imageUrl: string | null = null;
-  pdfUrl: SafeResourceUrl | null = null;
+  readonly contentType = signal<string | null>(null);
+  readonly imageUrl = signal<string | null>(null);
+  readonly pdfUrl = signal<SafeResourceUrl | null>(null);
 
-  private heartbeatTimer: any;
+  private heartbeatTimer: number | null = null;
   private lastHeartbeatAt = Date.now();
 
-  constructor(
-    private route: ActivatedRoute,
-    private http: HttpClient,
-    private cdr: ChangeDetectorRef,
-    private sanitizer: DomSanitizer
-  ) {}
+  readonly isLoading = computed(() => this.state() === 'loading');
+  readonly isReady = computed(() => this.state() === 'ready');
 
-  ngOnInit() {
-    this.linkId = this.route.snapshot.paramMap.get('linkId') || '';
-    this.sessionId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-
-    this.fetchAndRender();
+  constructor() {
+    void this.fetchAndRender();
 
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('beforeunload', this.onBeforeUnload);
@@ -48,21 +54,23 @@ export class ViewerComponent implements OnInit, OnDestroy {
 
     this.sendFinalHeartbeat();
 
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
+    if (this.heartbeatTimer !== null) {
+      window.clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
 
-    if (this.imageUrl) {
-      URL.revokeObjectURL(this.imageUrl);
-    }
+    const img = this.imageUrl();
+    if (img) URL.revokeObjectURL(img);
   }
 
-  private async fetchAndRender() {
-    this.loading = true;
-    this.error = null;
+  private async fetchAndRender(): Promise<void> {
+    this.state.set('loading');
+    this.error.set(null);
+    this.contentType.set(null);
+    this.imageUrl.set(null);
+    this.pdfUrl.set(null);
 
-    const url = `/api/view/${encodeURIComponent(this.linkId)}?sid=${encodeURIComponent(this.sessionId)}`;
+    const url = `/api/view/${encodeURIComponent(this.linkId())}?sid=${encodeURIComponent(this.sessionId())}`;
 
     try {
       const resp = await fetch(url);
@@ -71,36 +79,35 @@ export class ViewerComponent implements OnInit, OnDestroy {
         throw new Error(msg || `Failed to load document (${resp.status})`);
       }
 
-      this.contentType = resp.headers.get('content-type');
+      const ct = resp.headers.get('content-type');
+      this.contentType.set(ct);
+
       const blob = await resp.blob();
 
-      this.loading = false;
-
-      if ((this.contentType || '').includes('application/pdf')) {
+      if ((ct || '').includes('application/pdf')) {
         const objectUrl = URL.createObjectURL(blob);
-        this.pdfUrl = this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl);
-      } else if ((this.contentType || '').startsWith('image/')) {
-        this.imageUrl = URL.createObjectURL(blob);
+        this.pdfUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl));
       } else {
-        this.imageUrl = URL.createObjectURL(blob);
+        this.imageUrl.set(URL.createObjectURL(blob));
       }
 
-      this.cdr.detectChanges();
+      this.state.set('ready');
       this.startHeartbeats();
-    } catch (err: any) {
-      this.loading = false;
-      this.error = err?.message || 'Failed to load document.';
-      this.cdr.detectChanges();
+    } catch (err: unknown) {
+      const msg =
+        typeof err === 'object' && err !== null
+          ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ((err as any).message as string | undefined)
+          : undefined;
+      this.error.set(msg || 'Failed to load document.');
+      this.state.set('error');
     }
   }
-
-  // (pdf.js/canvas rendering removed for now to keep dev server stable)
 
   private startHeartbeats() {
     this.lastHeartbeatAt = Date.now();
 
-    // Every 5 seconds, send a delta
-    this.heartbeatTimer = setInterval(() => {
+    this.heartbeatTimer = window.setInterval(() => {
       if (document.hidden) return;
       this.sendHeartbeatDelta();
     }, 5000);
@@ -114,14 +121,15 @@ export class ViewerComponent implements OnInit, OnDestroy {
     this.lastHeartbeatAt = now;
 
     this.http
-      .post(`/api/view/${encodeURIComponent(this.linkId)}/heartbeat`, {
-        sessionId: this.sessionId,
+      .post(`/api/view/${encodeURIComponent(this.linkId())}/heartbeat`, {
+        sessionId: this.sessionId(),
         deltaSeconds
       })
+      .pipe(timeout({ first: 5000 }), finalize(() => {}))
       .subscribe({
         next: () => {},
         error: () => {
-          // Ignore heartbeat errors (viewer should still work)
+          // ignore heartbeat errors
         }
       });
   }
@@ -129,20 +137,19 @@ export class ViewerComponent implements OnInit, OnDestroy {
   private sendFinalHeartbeat() {
     const now = Date.now();
     const deltaSeconds = Math.max(0, Math.round((now - this.lastHeartbeatAt) / 1000));
-    if (!this.linkId || deltaSeconds === 0) return;
+    if (!this.linkId() || deltaSeconds === 0) return;
+
     this.lastHeartbeatAt = now;
 
-    const payload = JSON.stringify({ sessionId: this.sessionId, deltaSeconds });
+    const payload = JSON.stringify({ sessionId: this.sessionId(), deltaSeconds });
 
-    // Prefer sendBeacon on unload
     if (navigator.sendBeacon) {
       const blob = new Blob([payload], { type: 'application/json' });
-      navigator.sendBeacon(`/api/view/${encodeURIComponent(this.linkId)}/heartbeat`, blob);
+      navigator.sendBeacon(`/api/view/${encodeURIComponent(this.linkId())}/heartbeat`, blob);
       return;
     }
 
-    // Fallback (keepalive)
-    fetch(`/api/view/${encodeURIComponent(this.linkId)}/heartbeat`, {
+    void fetch(`/api/view/${encodeURIComponent(this.linkId())}/heartbeat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: payload,
@@ -150,13 +157,10 @@ export class ViewerComponent implements OnInit, OnDestroy {
     }).catch(() => {});
   }
 
-  // pdf.js loader removed
-
   onVisibilityChange = () => {
     if (document.hidden) {
       this.sendFinalHeartbeat();
     } else {
-      // reset timer anchor on return
       this.lastHeartbeatAt = Date.now();
     }
   };

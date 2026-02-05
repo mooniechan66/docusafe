@@ -1,56 +1,88 @@
-import { Component } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import {
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  Validators
+} from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
-import { AuthService } from '../../services/auth.service';
 import { HttpClient } from '@angular/common/http';
+import { finalize, timeout } from 'rxjs';
+
+import { AuthService } from '../../services/auth.service';
+
+type GoogleStatusResponse = { enabled: boolean };
 
 @Component({
   selector: 'app-login',
-  standalone: true,
   imports: [CommonModule, ReactiveFormsModule, RouterModule],
-  templateUrl: './login.html'
+  templateUrl: './login.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class LoginComponent {
-  loginForm: FormGroup;
-  error: string = '';
-  loading = false;
-  googleEnabled = false;
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
+  private readonly http = inject(HttpClient);
 
-  constructor(
-    private fb: FormBuilder,
-    private authService: AuthService,
-    private router: Router,
-    private http: HttpClient
-  ) {
-    this.loginForm = this.fb.group({
-      email: ['', [Validators.required, Validators.email]],
-      password: ['', [Validators.required]]
-    });
-    // Check if Google auth is enabled on server
-    this.http.get<any>('/auth/google/status').subscribe({
-      next: (r) => (this.googleEnabled = !!r?.enabled),
-      error: () => (this.googleEnabled = false)
-    });
+  readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly googleEnabled = signal(false);
+
+  readonly form = this.fb.group({
+    email: this.fb.control('', [Validators.required, Validators.email]),
+    password: this.fb.control('', [Validators.required])
+  });
+
+  readonly canSubmit = computed(() => this.form.valid && !this.loading());
+
+  constructor() {
+    this.http
+      .get<GoogleStatusResponse>('/auth/google/status')
+      .pipe(timeout({ first: 5000 }))
+      .subscribe({
+        next: (r) => this.googleEnabled.set(!!r?.enabled),
+        error: () => this.googleEnabled.set(false)
+      });
   }
 
-  onSubmit() {
-    if (this.loginForm.valid) {
-      this.loading = true;
-      this.error = '';
-      this.authService.login(this.loginForm.value).subscribe({
+  submit() {
+    if (this.form.invalid || this.loading()) return;
+
+    this.loading.set(true);
+    this.error.set(null);
+
+    this.authService
+      .login(this.form.getRawValue())
+      .pipe(
+        timeout({ first: 15000 }),
+        finalize(() => this.loading.set(false))
+      )
+      .subscribe({
         next: () => {
-          this.router.navigate(['/dashboard']);
+          void this.router.navigate(['/dashboard']);
         },
-        error: (err) => {
-          this.loading = false;
-          this.error = err.error?.error || 'Login failed';
+        error: (err: unknown) => {
+          const msg =
+            typeof err === 'object' && err !== null
+              ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ((err as any).error?.error as string | undefined) ||
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ((err as any).message as string | undefined)
+              : undefined;
+          this.error.set(msg || 'Login failed.');
         }
       });
-    }
   }
 
   loginWithGoogle() {
+    if (!this.googleEnabled()) return;
     window.location.href = '/auth/google';
   }
 }
