@@ -46,10 +46,30 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   console.warn("Google Client ID/Secret not found. Google Auth disabled.");
 }
 
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/google/status', (req, res) => {
+  const enabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  res.json({ enabled });
+});
 
-router.get('/google/callback', 
-  passport.authenticate('google', { session: false, failureRedirect: '/login' }),
+router.get('/google', (req, res, next) => {
+  if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
+    return res.status(501).json({ error: 'Google auth is not configured on the server.' });
+  }
+  return (passport.authenticate('google', { scope: ['profile', 'email'] }) as any)(req, res, next);
+});
+
+router.get(
+  '/google/callback',
+  (req, res, next) => {
+    if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
+      return res.status(501).json({ error: 'Google auth is not configured on the server.' });
+    }
+    return (passport.authenticate('google', { session: false, failureRedirect: '/login' }) as any)(
+      req,
+      res,
+      next
+    );
+  },
   (req, res) => {
     // Successful authentication
     const user = req.user as any;

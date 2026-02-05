@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
+import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-login',
@@ -14,15 +15,22 @@ export class LoginComponent {
   loginForm: FormGroup;
   error: string = '';
   loading = false;
+  googleEnabled = false;
 
   constructor(
     private fb: FormBuilder,
     private authService: AuthService,
-    private router: Router
+    private router: Router,
+    private http: HttpClient
   ) {
     this.loginForm = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
       password: ['', [Validators.required]]
+    });
+    // Check if Google auth is enabled on server
+    this.http.get<any>('/auth/google/status').subscribe({
+      next: (r) => (this.googleEnabled = !!r?.enabled),
+      error: () => (this.googleEnabled = false)
     });
   }
 

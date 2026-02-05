@@ -6,15 +6,32 @@ import nodemailer from 'nodemailer';
 
 const router = express.Router();
 
-// Mock transport for now - or use Ethereal in dev
-const transporter = nodemailer.createTransport({
-  host: 'smtp.ethereal.email',
-  port: 587,
-  auth: {
-    user: 'ethereal.user@example.com', // Replace with real generated creds if needed, or just log
-    pass: 'secret'
+async function getTransporter() {
+  // Production: configure real SMTP via env
+  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: String(process.env.SMTP_SECURE || 'false') === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
   }
-});
+
+  // Dev: use Ethereal test mailbox (no real email delivery)
+  const testAccount = await nodemailer.createTestAccount();
+  return nodemailer.createTransport({
+    host: testAccount.smtp.host,
+    port: testAccount.smtp.port,
+    secure: testAccount.smtp.secure,
+    auth: {
+      user: testAccount.user,
+      pass: testAccount.pass
+    }
+  });
+}
 
 router.post('/register', async (req, res) => {
   try {
@@ -50,13 +67,37 @@ router.post('/register', async (req, res) => {
       }
     });
 
-    // TODO: Make this configurable based on environment
-    const verificationLink = `http://localhost:4200/verify?token=${token}`;
-    
-    // In production, send real email. Here we log it or use a mock.
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+    const verificationLink = `${frontendUrl}/verify?token=${token}`;
+
+    // Send verification email (or Ethereal in dev)
+    let previewUrl: string | null = null;
+    try {
+      const transporter = await getTransporter();
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_FROM || 'Docusafe <no-reply@docusafe.local>',
+        to: email,
+        subject: 'Verify your email - Docusafe',
+        text: `Verify your email: ${verificationLink}`,
+        html: `<p>Verify your email:</p><p><a href="${verificationLink}">${verificationLink}</a></p>`
+      });
+
+      previewUrl = nodemailer.getTestMessageUrl(info) || null;
+      if (previewUrl) {
+        console.log(`[AUTH] Ethereal preview URL: ${previewUrl}`);
+      }
+    } catch (e) {
+      console.warn('[AUTH] Failed to send verification email (still created user):', e);
+    }
+
     console.log(`[AUTH] Verification link for ${email}: ${verificationLink}`);
 
-    res.status(201).json({ message: 'User created. Please check your email to verify your account.' });
+    res.status(201).json({
+      message: 'User created. Please check your email to verify your account.',
+      ...(process.env.NODE_ENV !== 'production'
+        ? { verificationLink, previewUrl }
+        : {})
+    });
 
   } catch (error) {
     console.error('Registration error:', error);
