@@ -4,6 +4,7 @@ import { prisma } from './prisma'; // Use the singleton
 import registrationRoutes from './auth/registration';
 import loginRoutes from './auth/login';
 import googleRoutes from './auth/google';
+import documentRoutes from './routes/documentRoutes';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -14,6 +15,7 @@ app.use(passport.initialize());
 app.use('/auth', registrationRoutes);
 app.use('/auth', loginRoutes);
 app.use('/auth', googleRoutes);
+app.use('/api/documents', documentRoutes);
 
 app.get('/', (req, res) => {
   res.send('Docusafe API is running');
