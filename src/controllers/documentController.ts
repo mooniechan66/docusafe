@@ -1,10 +1,12 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import requestIp from 'request-ip';
 import { prisma } from '../prisma';
 import { AuthRequest } from '../middleware/auth';
+import { watermarkFile } from '../services/watermarkService';
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
@@ -79,5 +81,79 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
       fs.unlinkSync(req.file.path);
     }
     res.status(500).json({ error: 'Failed to save document metadata' });
+  }
+};
+
+export const viewDocument = async (req: Request, res: Response) => {
+  const { linkId } = req.params;
+
+  try {
+    const document = await prisma.document.findUnique({
+      where: { oneTimeLink: linkId },
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    if (document.isBurned) {
+      return res.status(410).json({ error: 'Document has been burned (view limit reached or expired)' });
+    }
+
+    if (document.expiresAt && new Date() > document.expiresAt) {
+      // Mark as burned if expired
+      await prisma.document.update({
+        where: { id: document.id },
+        data: { isBurned: true },
+      });
+      return res.status(410).json({ error: 'Document has expired' });
+    }
+
+    const ip = requestIp.getClientIp(req) || 'Unknown IP';
+    const userAgent = req.headers['user-agent'] || 'Unknown UA';
+    const watermarkContent = `${ip} - ${new Date().toISOString()}`;
+
+    // Generate watermarked buffer
+    const watermarkedBuffer = await watermarkFile(document.filePath, watermarkContent);
+
+    // Update View Stats
+    const updatedDoc = await prisma.document.update({
+      where: { id: document.id },
+      data: {
+        currentViews: { increment: 1 },
+      },
+    });
+
+    // Log View
+    await prisma.viewLog.create({
+      data: {
+        documentId: document.id,
+        ipAddress: ip,
+        userAgent: userAgent,
+      },
+    });
+
+    // Check Max Views (Burn if limit reached)
+    if (document.maxViews && updatedDoc.currentViews >= document.maxViews) {
+      await prisma.document.update({
+        where: { id: document.id },
+        data: { isBurned: true },
+      });
+    }
+
+    // Determine Content Type
+    const ext = path.extname(document.filePath).toLowerCase();
+    let contentType = 'application/octet-stream';
+    if (ext === '.pdf') contentType = 'application/pdf';
+    else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+    else if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.webp') contentType = 'image/webp';
+
+    res.setHeader('Content-Type', contentType);
+    res.send(watermarkedBuffer);
+
+  } catch (error) {
+    console.error('Error viewing document:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
