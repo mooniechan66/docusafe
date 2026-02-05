@@ -1,0 +1,60 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String?
+  googleId     String?    @unique
+  isVerified   Boolean    @default(false)
+  credits      Int        @default(0)
+  plan         String     @default("FREE") // Using String enum for SQLite compatibility if needed, but Prisma Enums work too. Prompt says enum: FREE, PRO.
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  documents    Document[]
+}
+
+model Document {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  title         String
+  filePath      String
+  oneTimeLink   String?   @unique // The token for the one-time link
+  watermarkText String?
+  expiresAt     DateTime?
+  maxViews      Int?      // Null means unlimited
+  currentViews  Int       @default(0)
+  isBurned      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  views         ViewLog[]
+}
+
+model ViewLog {
+  id              String   @id @default(uuid())
+  documentId      String
+  document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  ipAddress       String?
+  userAgent       String?
+  durationSeconds Int      @default(0)
+  viewedAt        DateTime @default(now())
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
