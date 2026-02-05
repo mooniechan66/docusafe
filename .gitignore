@@ -4,4 +4,7 @@ dist
 .DS_Store
 coverage
 
+# Local sqlite db
+*.db
+
 /generated/prisma
